@@ -32,27 +32,20 @@ app.use((req, res, next) => {
 });
 
 // [수정 2] SMTP 설정 강화 (타임아웃 증가, 공백 제거, 디버그 모드)
+// [수정] 복잡한 포트 설정 대신 service: 'Gmail' 사용
 const SMTP_CONFIG = {
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // 587포트는 false 필수
+    service: 'Gmail', // 대소문자 주의 (Gmail)
     auth: {
-        // 혹시 모를 공백 제거 (.trim)
         user: process.env.SMTP_USER?.trim(),
         pass: process.env.SMTP_PASS?.trim()
     },
-    family: 4, // IPv4 강제
-    tls: {
-        rejectUnauthorized: false
-    },
-    // 타임아웃을 60초(60000ms)로 대폭 늘림
-    connectionTimeout: 60000, 
-    greetingTimeout: 60000,
-    socketTimeout: 60000,
-    debug: true,  // 상세 로그 출력
-    logger: true  // 상세 로그 출력
+    // 타임아웃 설정 (서버가 너무 오래 매달리지 않게 설정)
+    connectionTimeout: 10000, 
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
+    debug: true,
+    logger: true
 };
-
 // Debug Log
 console.log('--- SMTP Configuration Check ---');
 if (process.env.SMTP_USER) {
