@@ -42,6 +42,7 @@ const SMTP_CONFIG = {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS
     },
+    family: 4,
     // Timeout settings to prevent hanging connections
     connectionTimeout: 10000, // 10 seconds to connect
     greetingTimeout: 10000,   // 10 seconds to wait for greeting
