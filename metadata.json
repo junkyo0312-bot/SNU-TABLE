@@ -1,0 +1,8 @@
+{
+  "name": "SNU Table",
+  "description": "서울대학교 식당 혼잡도 해결 및 스마트 웨이팅 서비스",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
