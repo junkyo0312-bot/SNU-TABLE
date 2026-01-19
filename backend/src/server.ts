@@ -34,12 +34,14 @@ app.use((req, res, next) => {
 // [수정 2] SMTP 설정 강화 (타임아웃 증가, 공백 제거, 디버그 모드)
 // [수정] 복잡한 포트 설정 대신 service: 'Gmail' 사용
 const SMTP_CONFIG = {
-    service: 'Gmail', // 대소문자 주의 (Gmail)
+    host: 'smtp.gmail.com',   // [변경] 명시적 호스트 설정
+    port: 465,                // [변경] 587 대신 465(SSL) 사용 (클라우드 환경에서 더 안정적)
+    secure: true,             // [변경] 포트 465를 쓸 때는 반드시 true여야 함
     auth: {
         user: process.env.SMTP_USER?.trim(),
         pass: process.env.SMTP_PASS?.trim()
     },
-    // 타임아웃 설정 (서버가 너무 오래 매달리지 않게 설정)
+    // 타임아웃 설정 (기존 설정 유지)
     connectionTimeout: 10000, 
     greetingTimeout: 10000,
     socketTimeout: 10000,
