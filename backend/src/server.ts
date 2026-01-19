@@ -6,63 +6,59 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors({
-    origin: 'https://snu-table.vercel.app', // 본인의 Vercel 주소로 변경
-    credentials: true
-}));
 const PORT = 4000;
 
-// Update CORS to explicitly allow Frontend origin
+// [수정 1] CORS 설정 합치기 (배포 주소와 로컬 주소 모두 허용)
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
-    credentials: true
+    origin: [
+        'https://snu-table.vercel.app',  // 배포된 프론트엔드
+        'http://localhost:5173',         // 로컬 개발용
+        'http://127.0.0.1:5173'
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'OPTIONS'], // 허용할 메소드 명시
 }));
 
 app.use(express.json());
 
-// Request Logging Middleware (Debug purpose)
+// Request Logging Middleware
 app.use((req, res, next) => {
     console.log(`[API Request] ${req.method} ${req.url}`);
     next();
 });
 
-// --- SMTP Configuration (Environment Variables) ---
-// Note: To send real emails, you must provide SMTP_USER and SMTP_PASS in your environment (e.g., .env file)
-// For Gmail, enable 2-Factor Auth and use an App Password: https://myaccount.google.com/apppasswords
+// [수정 2] SMTP 설정 강화 (타임아웃 증가, 공백 제거, 디버그 모드)
 const SMTP_CONFIG = {
-    host: 'smtp.gmail.com',  // 구글 주소를 명확하게!
-    port: 587,               // 보안 포트(SSL) 사용!
-    secure: false,            // 보안 접속 켜기!
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // 587포트는 false 필수
     auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
+        // 혹시 모를 공백 제거 (.trim)
+        user: process.env.SMTP_USER?.trim(),
+        pass: process.env.SMTP_PASS?.trim()
     },
-    family: 4,
+    family: 4, // IPv4 강제
     tls: {
         rejectUnauthorized: false
     },
-    // Timeout settings to prevent hanging connections
-    connectionTimeout: 10000, // 10 seconds to connect
-    greetingTimeout: 10000,   // 10 seconds to wait for greeting
-    socketTimeout: 15000      // 15 seconds of inactivity
+    // 타임아웃을 60초(60000ms)로 대폭 늘림
+    connectionTimeout: 60000, 
+    greetingTimeout: 60000,
+    socketTimeout: 60000,
+    debug: true,  // 상세 로그 출력
+    logger: true  // 상세 로그 출력
 };
 
-// Debug Log for SMTP Configuration
+// Debug Log
 console.log('--- SMTP Configuration Check ---');
 if (process.env.SMTP_USER) {
-    console.log(`SMTP_USER: ${process.env.SMTP_USER}`);
+    console.log(`SMTP_USER: ${process.env.SMTP_USER.trim()}`);
 } else {
     console.warn('SMTP_USER is missing in process.env');
-}
-if (process.env.SMTP_PASS) {
-    console.log(`SMTP_PASS: ${process.env.SMTP_PASS ? '****** (Set)' : 'Missing'}`);
-} else {
-    console.warn('SMTP_PASS is missing in process.env');
 }
 console.log('--------------------------------');
 
@@ -87,8 +83,8 @@ interface QueueItem {
 
 interface RestaurantQueue {
     items: QueueItem[];
-    currentNumber: number; // The number currently being served
-    nextTicketNumber: number; // The next number to assign
+    currentNumber: number;
+    nextTicketNumber: number;
 }
 
 interface VerificationEntry {
@@ -98,17 +94,17 @@ interface VerificationEntry {
 
 // --- Data Stores ---
 const QUEUES: Record<string, RestaurantQueue> = {};
-const VERIFICATIONS: Record<string, VerificationEntry> = {}; // email -> { code, expiresAt }
+const VERIFICATIONS: Record<string, VerificationEntry> = {};
 
-// 1. Caching System
+// Caching System
 interface CacheEntry {
     timestamp: number;
     data: MenuItem[];
 }
 const CACHE: Record<string, CacheEntry> = {};
-const CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache
+const CACHE_DURATION = 60 * 60 * 1000;
 
-// Map Frontend IDs to SNUCO URLs
+// Maps
 const RESTAURANT_URL_MAP: Record<string, string> = {
     'student-center': 'https://snuco.snu.ac.kr/ko/foodmenu?page=0',
     'jahayeon': 'https://snuco.snu.ac.kr/ko/foodmenu?page=1',
@@ -122,7 +118,6 @@ const RESTAURANT_URL_MAP: Record<string, string> = {
     'dorm-901': 'https://snuco.snu.ac.kr/ko/foodmenu?page=5',
 };
 
-// Map ID to Korean Name for filtering rows
 const RESTAURANT_NAME_MAP: Record<string, string> = {
     'student-center': '학생회관',
     'jahayeon': '자하연',
@@ -168,7 +163,6 @@ function getQueue(restaurantId: string): RestaurantQueue {
     return QUEUES[restaurantId];
 }
 
-// Background Worker
 setInterval(() => {
     Object.keys(QUEUES).forEach(restaurantId => {
         const queue = QUEUES[restaurantId];
@@ -186,7 +180,6 @@ setInterval(() => {
 
 // --- Scraper Logic ---
 async function scrapeMenu(restaurantId: string): Promise<MenuItem[]> {
-    // 1. Check Cache
     if (CACHE[restaurantId] && Date.now() - CACHE[restaurantId].timestamp < CACHE_DURATION) {
         return CACHE[restaurantId].data;
     }
@@ -194,7 +187,6 @@ async function scrapeMenu(restaurantId: string): Promise<MenuItem[]> {
     const targetUrl = RESTAURANT_URL_MAP[restaurantId];
     const targetName = RESTAURANT_NAME_MAP[restaurantId] || '';
 
-    // If no URL mapped, use fallback immediately
     if (!targetUrl) return generateFallback(restaurantId);
     
     try {
@@ -202,7 +194,6 @@ async function scrapeMenu(restaurantId: string): Promise<MenuItem[]> {
         const $ = cheerio.load(response.data);
         const menus: MenuItem[] = [];
 
-        // SNUCO structure: <tbody> <tr> ... </tr> </tbody>
         $('tbody tr').each((i, row) => {
             const columns = $(row).find('td');
             const restaurantNameCell = columns.eq(0).text().trim(); 
@@ -221,29 +212,16 @@ async function scrapeMenu(restaurantId: string): Promise<MenuItem[]> {
                     const cleanText = $(`<div>${line}</div>`).text().trim(); 
                     if (cleanText.length < 2) return;
 
-                    // 운영시간, 혼잡시간, 예약문의 등 정보성 텍스트 제외
                     const excludePatterns = [
-                        /^※\s*/,  // ※로 시작하는 줄
-                        /운영시간/i,
-                        /혼잡시간/i,
-                        /예약문의/i,
-                        /라스트오더/i,
-                        /브레이크타임/i,
-                        /위 메뉴외에도/i,
-                        /다양한 메뉴가/i,
-                        /준비되어 있습니다/i,
-                        /메\s*뉴/i,  // "메 뉴" 같은 헤더
-                        /사\s*이\s*드/i,  // "사 이 드" 같은 헤더
-                        /^<.*>$/  // HTML 태그만 있는 경우
+                        /^※\s*/, /운영시간/i, /혼잡시간/i, /예약문의/i, /라스트오더/i,
+                        /브레이크타임/i, /위 메뉴외에도/i, /다양한 메뉴가/i,
+                        /준비되어 있습니다/i, /메\s*뉴/i, /사\s*이\s*드/i, /^<.*>$/
                     ];
 
-                    // 제외 패턴 체크
                     if (excludePatterns.some(pattern => pattern.test(cleanText))) {
                         return;
                     }
 
-                    // 메뉴 이름과 가격 패턴: "메뉴이름 : 가격원" 또는 "메뉴이름 : 가격 원" 형식
-                    // 또는 "메뉴이름가격원" 형식도 허용
                     const menuPattern = /^(.+?)\s*[:：]\s*([0-9,]+)\s*원?$/;
                     const simplePattern = /^(.+?)([0-9,]+)\s*원?$/;
                     
@@ -255,44 +233,22 @@ async function scrapeMenu(restaurantId: string): Promise<MenuItem[]> {
                         name = match[1].trim();
                         price = parseInt(match[2].replace(/,/g, ''), 10);
                     } else {
-                        // 간단한 패턴 시도
                         match = cleanText.match(simplePattern);
                         if (match) {
                             name = match[1].trim();
                             price = parseInt(match[2].replace(/,/g, ''), 10);
                         } else {
-                            // 가격만 있는 경우 (예: "4,500원")
-                            const priceOnlyMatch = cleanText.match(/^([0-9,]+)\s*원?$/);
-                            if (priceOnlyMatch) {
-                                return; // 가격만 있고 메뉴 이름이 없으면 제외
-                            }
-                            return; // 패턴에 맞지 않으면 제외
+                            return;
                         }
                     }
 
-                    // 유효성 검사
-                    if (price < 1000 || price > 100000) {
-                        // 가격이 너무 낮거나 높으면 제외 (1000원 미만 또는 100000원 초과)
-                        return;
-                    }
+                    if (price < 1000 || price > 100000) return;
+                    if (name.length < 1) return;
 
-                    if (name.length < 1) {
-                        return;
-                    }
+                    name = name.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').replace(/※/g, '').replace(/\s+/g, ' ').trim();
 
-                    // 메뉴 이름 정리: 괄호 안의 내용, 특수문자 제거
-                    name = name
-                        .replace(/\[.*?\]/g, '')  // [조식], [중식] 등 제거
-                        .replace(/\(.*?\)/g, '')  // 괄호 안 내용 제거
-                        .replace(/※/g, '')  // ※ 제거
-                        .replace(/\s+/g, ' ')  // 연속 공백을 하나로
-                        .trim();
+                    if (name.length < 1) return;
 
-                    if (name.length < 1) {
-                        return;
-                    }
-
-                    // 카테고리 결정
                     let category = '일반';
                     if (colIdx === 1) category = '조식';
                     else if (colIdx === 2) category = '중식';
@@ -313,8 +269,6 @@ async function scrapeMenu(restaurantId: string): Promise<MenuItem[]> {
         });
 
         if (menus.length === 0) return generateFallback(restaurantId);
-
-        // 캐시에는 모든 메뉴를 저장 (시간대별 필터링은 API 응답 시 수행)
         CACHE[restaurantId] = { timestamp: Date.now(), data: menus };
         return menus;
 
@@ -345,74 +299,71 @@ function generateFallback(restaurantId: string): MenuItem[] {
 
 // --- Email Logic ---
 async function sendVerificationEmail(to: string, code: string): Promise<boolean> {
-    // Check if Credentials exist
     if (!SMTP_CONFIG.auth.user || !SMTP_CONFIG.auth.pass) {
         console.log("\n=================================================");
         console.log(`[DEV MODE] Email Simulation (No SMTP Credentials Found)`);
-        console.log(`To receive real emails, set SMTP_USER and SMTP_PASS environment variables.`);
-        console.log(`To: ${to}`);
-        console.log(`Code: ${code}`);
+        console.log(`To: ${to}, Code: ${code}`);
         console.log("=================================================\n");
         return true; 
     }
 
     try {
-        console.log(`[Email] Initializing SMTP transport for user: ${SMTP_CONFIG.auth.user}...`);
+        console.log(`[Email] Creating Transport for: ${SMTP_CONFIG.auth.user}`);
         const transporter = nodemailer.createTransport(SMTP_CONFIG);
+
+        // [추가] 연결 테스트
+        try {
+            await transporter.verify();
+            console.log('[Email] Server is ready to take our messages');
+        } catch (verifyError) {
+            console.error('[Email] Verify Error:', verifyError);
+            throw verifyError; // 연결 실패 시 바로 에러 처리
+        }
 
         const mailOptions = {
             from: `"SNU Table" <${SMTP_CONFIG.auth.user}>`,
             to: to,
             subject: '[SNU Table] 인증번호 안내',
-            text: `안녕하세요.\nSNU Table 인증번호는 [${code}] 입니다.\n3분 내에 입력해주세요.`,
+            text: `인증번호: ${code}`,
             html: `
                 <div style="font-family: sans-serif; padding: 20px; text-align: center; border: 1px solid #eee; border-radius: 10px;">
                     <h1 style="color: #1e3a8a;">SNU Table</h1>
-                    <p>안녕하세요, 서울대학교 학식 웨이팅 서비스입니다.</p>
-                    <p>아래 인증번호 6자리를 입력해주세요.</p>
-                    <div style="background: #f3f4f6; padding: 15px; margin: 20px 0; font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #1e3a8a;">
+                    <p>인증번호 6자리를 입력해주세요.</p>
+                    <div style="background: #f3f4f6; padding: 15px; margin: 20px 0; font-size: 24px; font-weight: bold; color: #1e3a8a;">
                         ${code}
                     </div>
-                    <p style="color: #888; font-size: 12px;">3분 내에 입력하지 않으면 만료됩니다.</p>
                 </div>
             `
         };
 
         console.log(`[Email] Sending email to ${to}...`);
         const info = await transporter.sendMail(mailOptions);
-        console.log(`[Email] Sent real verification email to ${to}. MessageID: ${info.messageId}`);
+        console.log(`[Email] Success! MessageID: ${info.messageId}`);
         return true;
     } catch (error: any) {
         console.error("[Email] Failed to send email:", error);
-        console.error("Debug Info:");
-        console.error("- SMTP_USER Set:", !!SMTP_CONFIG.auth.user);
-        console.error("- SMTP_PASS Set:", !!SMTP_CONFIG.auth.pass);
-        console.error("- Error Message:", error.message);
-        console.error("- Error Code:", error.code);
         return false;
     }
 }
 
 
 // --- Routes ---
-
 const distPath = path.join(__dirname, '../../dist');
 app.use(express.static(distPath));
 
-// Auth API - Send Code
 app.post('/api/auth/send-code', async (req: Request, res: Response) => {
     try {
         const { email } = req.body;
-        
         if (!email || typeof email !== 'string') {
             res.status(400).json({ error: '이메일 주소를 입력해주세요.' });
             return;
         }
 
         const cleanEmail = email.trim().toLowerCase();
-        
-        // 이메일 형식 검증 (프론트엔드와 동일한 정규식 사용)
+        // [테스트용] gmail도 허용하고 싶다면 아래 주석 해제 (지금은 snu.ac.kr만)
+        // const SNU_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@(snu\.ac\.kr|gmail\.com)$/;
         const SNU_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@snu\.ac\.kr$/;
+        
         if (!SNU_EMAIL_REGEX.test(cleanEmail)) {
             res.status(400).json({ error: '서울대학교 웹메일(@snu.ac.kr) 형식이 아닙니다.' });
             return;
@@ -421,124 +372,74 @@ app.post('/api/auth/send-code', async (req: Request, res: Response) => {
         const code = Math.floor(100000 + Math.random() * 900000).toString();
         VERIFICATIONS[cleanEmail] = {
             code,
-            expiresAt: Date.now() + 3 * 60 * 1000 // 3 minutes
+            expiresAt: Date.now() + 3 * 60 * 1000
         };
-
-        console.log(`[Auth] 인증 코드 생성: ${cleanEmail} -> ${code}`);
 
         const sent = await sendVerificationEmail(cleanEmail, code);
 
         if (sent) {
-            // 개발 모드에서는 응답에 코드 포함 (프로덕션에서는 제거)
-            const response: any = { 
-                success: true, 
-                message: '인증번호가 발송되었습니다.' 
-            };
-            
-            // SMTP 설정이 없으면 개발 모드로 간주하고 코드 반환
-            if (!SMTP_CONFIG.auth.user || !SMTP_CONFIG.auth.pass) {
-                response.code = code; // 개발 모드에서만 코드 반환
-                console.log(`[Auth] 개발 모드: 인증 코드를 응답에 포함했습니다.`);
-            }
-            
+            const response: any = { success: true, message: '인증번호가 발송되었습니다.' };
+            if (!SMTP_CONFIG.auth.user) response.code = code;
             res.json(response);
         } else {
-            res.status(500).json({ error: '이메일 발송에 실패했습니다. 서버 로그를 확인해주세요.' });
+            res.status(500).json({ error: '이메일 발송 실패 (서버 로그 확인)' });
         }
     } catch (error: any) {
         console.error('[Auth] Send code error:', error);
-        res.status(500).json({ error: '서버 오류가 발생했습니다: ' + (error.message || 'Unknown error') });
+        res.status(500).json({ error: '서버 오류: ' + error.message });
     }
 });
 
-// Auth API - Verify Code
 app.post('/api/auth/verify-code', (req: Request, res: Response) => {
     try {
         const { email, code } = req.body;
-        
-        if (!email || typeof email !== 'string') {
-            res.status(400).json({ error: '이메일 주소를 입력해주세요.' });
+        if (!email || !code) {
+            res.status(400).json({ error: '이메일과 코드를 입력해주세요.' });
             return;
         }
-
-        if (!code || typeof code !== 'string' || code.length !== 6) {
-            res.status(400).json({ error: '6자리 인증번호를 입력해주세요.' });
-            return;
-        }
-
         const cleanEmail = email.trim().toLowerCase();
         const record = VERIFICATIONS[cleanEmail];
 
-        // Check if record exists
         if (!record) {
-            console.log(`[Auth] 인증 시도 실패: ${cleanEmail} - 인증 정보 없음`);
-            res.status(400).json({ error: '인증 정보가 없습니다. 인증번호를 다시 요청해주세요.' });
+            res.status(400).json({ error: '인증 정보가 없습니다. 다시 요청해주세요.' });
             return;
         }
-
-        // Check expiration
         if (Date.now() > record.expiresAt) {
             delete VERIFICATIONS[cleanEmail];
-            console.log(`[Auth] 인증 시도 실패: ${cleanEmail} - 시간 만료`);
-            res.status(400).json({ error: '인증 시간이 만료되었습니다. 인증번호를 다시 요청해주세요.' });
+            res.status(400).json({ error: '인증 시간이 만료되었습니다.' });
             return;
         }
-
-        // Check code match (Or allow master key '123456' for demo/admin)
         if (record.code === code || code === '123456') {
-            delete VERIFICATIONS[cleanEmail]; // Verify once
+            delete VERIFICATIONS[cleanEmail];
             const token = `token-${cleanEmail}-${Date.now()}`;
-            console.log(`[Auth] 인증 성공: ${cleanEmail}`);
             res.json({ success: true, token });
         } else {
-            console.log(`[Auth] 인증 시도 실패: ${cleanEmail} - 코드 불일치 (입력: ${code}, 기대: ${record.code})`);
-            res.status(400).json({ error: '인증번호가 올바르지 않습니다.' });
+            res.status(400).json({ error: '인증번호가 일치하지 않습니다.' });
         }
     } catch (error: any) {
-        console.error('[Auth] Verify code error:', error);
-        res.status(500).json({ error: '서버 오류가 발생했습니다: ' + (error.message || 'Unknown error') });
+        res.status(500).json({ error: error.message });
     }
 });
 
-// Menu API
 app.get('/api/menus/:restaurantId', async (req: Request, res: Response) => {
     try {
         const { restaurantId } = req.params;
         const allMenus = await scrapeMenu(restaurantId);
-        
-        // 현재 시간에 맞는 메뉴만 필터링
         const now = new Date();
         const hour = now.getHours();
+        let allowedCategories: string[] = ['중식', '일반'];
         
-        let allowedCategories: string[] = [];
-        
-        if (hour >= 7 && hour < 10) {
-            // 조식 시간대: 7:00 ~ 10:00
-            allowedCategories = ['조식', '일반'];
-        } else if (hour >= 11 && hour < 14) {
-            // 중식 시간대: 11:00 ~ 14:00
-            allowedCategories = ['중식', '일반'];
-        } else if (hour >= 17 && hour < 20) {
-            // 석식 시간대: 17:00 ~ 20:00
-            allowedCategories = ['석식', '일반'];
-        } else {
-            // 그 외 시간대: 기본적으로 중식 메뉴 표시
-            allowedCategories = ['중식', '일반'];
-        }
+        if (hour >= 7 && hour < 10) allowedCategories = ['조식', '일반'];
+        else if (hour >= 11 && hour < 14) allowedCategories = ['중식', '일반'];
+        else if (hour >= 17 && hour < 20) allowedCategories = ['석식', '일반'];
         
         const filteredMenus = allMenus.filter(menu => allowedCategories.includes(menu.category));
-        
-        // 필터링 후 메뉴가 없으면 전체 메뉴 반환 (안전장치)
-        const data = filteredMenus.length > 0 ? filteredMenus : allMenus;
-        
-        res.json(data);
-    } catch (error: any) {
-        console.error('[Menu API] Error:', error);
-        res.status(500).json({ error: '메뉴를 가져오는 중 오류가 발생했습니다.' });
+        res.json(filteredMenus.length > 0 ? filteredMenus : allMenus);
+    } catch (error) {
+        res.status(500).json({ error: '메뉴 로드 실패' });
     }
 });
 
-// Queue APIs
 app.get('/api/queue/:restaurantId', (req: Request, res: Response) => {
     const { restaurantId } = req.params;
     const userId = req.query.userId as string;
@@ -559,10 +460,6 @@ app.get('/api/queue/:restaurantId', (req: Request, res: Response) => {
 
 app.post('/api/queue/join', (req: Request, res: Response) => {
     const { restaurantId, userId, partySize } = req.body;
-    if (!restaurantId || !userId) {
-         res.status(400).json({ error: "Missing fields" });
-         return;
-    }
     const queue = getQueue(restaurantId);
     if (queue.items.find(i => i.userId === userId)) {
         res.json({ success: true, queueNumber: queue.items.find(i => i.userId === userId)!.queueNumber });
@@ -584,19 +481,9 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
 });
 
-// [기존 코드 대신 아래 코드로 덮어씌우세요]
 app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`=================================`);
-    console.log(`🚀 SNU Table Server running on port ${PORT}`);
-    console.log(`📧 Email Service: ${SMTP_CONFIG.auth.user ? 'Active' : 'Simulation Mode'}`);
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📧 Email Mode: ${SMTP_CONFIG.auth.user ? 'Active' : 'Simulation'}`);
     console.log(`=================================`);
-}).on('error', (err: any) => {
-    // ... (에러 처리 코드는 그대로 두셔도 됩니다) ...
-    if (err.code === 'EADDRINUSE') {
-        // ...
-        process.exit(1);
-    } else {
-        console.error('서버 시작 오류:', err);
-        process.exit(1);
-    }
 });
