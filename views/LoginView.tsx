@@ -8,6 +8,7 @@ interface LoginViewProps {
 type AuthStep = 'INPUT_EMAIL' | 'VERIFY_CODE';
 const DEMO_CODE = '123456';
 const TIMEOUT_MS = 30000; // 30 seconds for SMTP operations
+const API_URL = "https://snu-table-production.up.railway.app";
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [step, setStep] = useState<AuthStep>('INPUT_EMAIL');
@@ -73,7 +74,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     setIsLoading(true);
 
     try {
-        const response = await fetchWithTimeout('/api/auth/send-code', {
+        const response = await fetchWithTimeout('${API_URL}/api/auth/send-code', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: cleanEmail })
@@ -149,7 +150,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
             return;
         }
 
-        const response = await fetchWithTimeout('/api/auth/verify-code', {
+        const response = await fetchWithTimeout('${API_URL}/api/auth/verify-code', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, code })

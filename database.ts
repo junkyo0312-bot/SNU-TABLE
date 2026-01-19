@@ -159,7 +159,7 @@ function seededRandom(seed: string) {
 }
 
 // --- API Helpers ---
-const API_BASE = '/api';
+const API_BASE = 'https://snu-table-production.up.railway.app/api';
 
 // Helper for fetch with short timeout to prevent UI freezing
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 2000): Promise<Response> {
