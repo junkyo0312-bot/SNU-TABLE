@@ -5,8 +5,8 @@
   "description": "Backend scraping server for SNU Table",
   "main": "src/server.ts",
   "scripts": {
-    "start": "node_modules/.bin/tsx.cmd src/server.ts",
-    "dev": "node_modules/.bin/nodemon.cmd --exec node_modules/.bin/tsx.cmd src/server.ts"
+    "start": "npx tsx src/server.ts",
+    "dev": "nodemon --exec tsx src/server.ts"
   },
   "dependencies": {
     "axios": "^1.6.0",
