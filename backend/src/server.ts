@@ -34,8 +34,8 @@ app.use((req, res, next) => {
 // [수정 2] SMTP 설정 강화 (타임아웃 증가, 공백 제거, 디버그 모드)
 const SMTP_CONFIG = {
     host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // 587포트는 false 필수
+    port: 465,
+    secure: true, // 587포트는 false 필수
     auth: {
         // 혹시 모를 공백 제거 (.trim)
         user: process.env.SMTP_USER?.trim(),
