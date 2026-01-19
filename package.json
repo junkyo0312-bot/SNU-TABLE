@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "start": "npx ts-node src/server.ts",
     "dev": "concurrently \"npm run server\" \"vite\"",
     "client": "vite",
     "build": "vite build",

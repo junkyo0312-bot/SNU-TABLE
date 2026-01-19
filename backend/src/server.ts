@@ -6,10 +6,15 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.use(cors({
+    origin: 'https://snu-table.vercel.app', // 본인의 Vercel 주소로 변경
+    credentials: true
+}));
 const PORT = 4000;
 
 // Update CORS to explicitly allow Frontend origin
@@ -573,18 +578,16 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
 });
 
-app.listen(PORT, () => {
+// [기존 코드 대신 아래 코드로 덮어씌우세요]
+app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`=================================`);
-    console.log(`🚀 SNU Table Server running on http://localhost:${PORT}`);
-    console.log(`📧 Email Service: ${SMTP_CONFIG.auth.user ? 'Active' : 'Simulation Mode (See logs)'}`);
+    console.log(`🚀 SNU Table Server running on port ${PORT}`);
+    console.log(`📧 Email Service: ${SMTP_CONFIG.auth.user ? 'Active' : 'Simulation Mode'}`);
     console.log(`=================================`);
 }).on('error', (err: any) => {
+    // ... (에러 처리 코드는 그대로 두셔도 됩니다) ...
     if (err.code === 'EADDRINUSE') {
-        console.error(`\n❌ 오류: 포트 ${PORT}가 이미 사용 중입니다.`);
-        console.error(`다음 명령어로 포트를 사용하는 프로세스를 확인하세요:`);
-        console.error(`  netstat -ano | findstr ":${PORT}"`);
-        console.error(`프로세스를 종료하려면:`);
-        console.error(`  Stop-Process -Id [PID] -Force\n`);
+        // ...
         process.exit(1);
     } else {
         console.error('서버 시작 오류:', err);
