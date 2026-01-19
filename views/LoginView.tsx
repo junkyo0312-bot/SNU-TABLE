@@ -150,7 +150,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
             return;
         }
 
-        const response = await fetchWithTimeout(`${API_URL}/api/auth/send-code`, {
+        const response = await fetchWithTimeout(`${API_URL}/api/auth/verify-code`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, code })
