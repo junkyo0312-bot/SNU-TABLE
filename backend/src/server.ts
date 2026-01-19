@@ -4,6 +4,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import https from 'https';
 import nodemailer from 'nodemailer';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -173,9 +174,11 @@ setInterval(() => {
     });
 }, 3000); 
 
+// ... (기존 코드 생략)
 
-// --- Scraper Logic ---
+// --- Scraper Logic (수정됨) ---
 async function scrapeMenu(restaurantId: string): Promise<MenuItem[]> {
+    // 1. 캐시 확인
     if (CACHE[restaurantId] && Date.now() - CACHE[restaurantId].timestamp < CACHE_DURATION) {
         return CACHE[restaurantId].data;
     }
@@ -186,7 +189,25 @@ async function scrapeMenu(restaurantId: string): Promise<MenuItem[]> {
     if (!targetUrl) return generateFallback(restaurantId);
     
     try {
-        const response = await axios.get(targetUrl, { timeout: 6000 });
+        // [수정 핵심 1] SSL 인증서 검증 무시 설정 (학교 서버 호환성 높임)
+        const httpsAgent = new https.Agent({  
+            rejectUnauthorized: false 
+        });
+
+        // [수정 핵심 2] 헤더 위장 (진짜 크롬 브라우저인 척 속임)
+        const response = await axios.get(targetUrl, { 
+            timeout: 15000, // [수정 핵심 3] 타임아웃 6초 -> 15초로 증가 (해외망 지연 고려)
+            httpsAgent,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Referer': 'https://snuco.snu.ac.kr/',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            }
+        });
+
         const $ = cheerio.load(response.data);
         const menus: MenuItem[] = [];
 
@@ -264,12 +285,21 @@ async function scrapeMenu(restaurantId: string): Promise<MenuItem[]> {
             }
         });
 
-        if (menus.length === 0) return generateFallback(restaurantId);
+        // 데이터가 없으면 fallback 대신 에러 로그를 남기고 fallback 실행
+        if (menus.length === 0) {
+            console.warn(`[Scraper] Warning: No menus found for ${restaurantId}. HTML length: ${response.data.length}`);
+            return generateFallback(restaurantId);
+        }
+
         CACHE[restaurantId] = { timestamp: Date.now(), data: menus };
         return menus;
 
-    } catch (error) {
-        console.error(`[Scraper] Failed to fetch ${restaurantId}:`, error);
+    } catch (error: any) {
+        // [디버깅용 로그 강화]
+        console.error(`[Scraper] Failed to fetch ${restaurantId}:`, error.message);
+        if (error.response) {
+            console.error(`Status: ${error.response.status}, StatusText: ${error.response.statusText}`);
+        }
         return generateFallback(restaurantId);
     }
 }
