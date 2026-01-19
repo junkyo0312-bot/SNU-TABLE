@@ -35,7 +35,9 @@ app.use((req, res, next) => {
 // Note: To send real emails, you must provide SMTP_USER and SMTP_PASS in your environment (e.g., .env file)
 // For Gmail, enable 2-Factor Auth and use an App Password: https://myaccount.google.com/apppasswords
 const SMTP_CONFIG = {
-    service: 'gmail',
+    host: 'smtp.gmail.com',  // 구글 주소를 명확하게!
+    port: 465,               // 보안 포트(SSL) 사용!
+    secure: true,            // 보안 접속 켜기!
     auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS
