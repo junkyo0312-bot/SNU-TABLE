@@ -41,6 +41,7 @@ const SMTP_CONFIG = {
         user: process.env.SMTP_USER?.trim(),
         pass: process.env.SMTP_PASS?.trim()
     },
+    
     // 타임아웃 설정 (기존 설정 유지)
     connectionTimeout: 10000, 
     greetingTimeout: 10000,
@@ -293,50 +294,47 @@ function generateFallback(restaurantId: string): MenuItem[] {
 }
 
 // --- Email Logic ---
+// 상단 import에 추가 필요 없음 (axios 사용)
+
+// [수정된 이메일 발송 함수 - Resend API 사용]
 async function sendVerificationEmail(to: string, code: string): Promise<boolean> {
-    if (!SMTP_CONFIG.auth.user || !SMTP_CONFIG.auth.pass) {
-        console.log("\n=================================================");
-        console.log(`[DEV MODE] Email Simulation (No SMTP Credentials Found)`);
-        console.log(`To: ${to}, Code: ${code}`);
-        console.log("=================================================\n");
-        return true; 
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
+
+    // API 키가 없으면 시뮬레이션 모드
+    if (!RESEND_API_KEY) {
+        console.log(`[Simulation] Code: ${code} to ${to}`);
+        return true;
     }
 
     try {
-        console.log(`[Email] Creating Transport for: ${SMTP_CONFIG.auth.user}`);
-        const transporter = nodemailer.createTransport(SMTP_CONFIG);
-
-        // [추가] 연결 테스트
-        try {
-            await transporter.verify();
-            console.log('[Email] Server is ready to take our messages');
-        } catch (verifyError) {
-            console.error('[Email] Verify Error:', verifyError);
-            throw verifyError; // 연결 실패 시 바로 에러 처리
-        }
-
-        const mailOptions = {
-            from: `"SNU Table" <${SMTP_CONFIG.auth.user}>`,
-            to: to,
-            subject: '[SNU Table] 인증번호 안내',
-            text: `인증번호: ${code}`,
-            html: `
-                <div style="font-family: sans-serif; padding: 20px; text-align: center; border: 1px solid #eee; border-radius: 10px;">
-                    <h1 style="color: #1e3a8a;">SNU Table</h1>
-                    <p>인증번호 6자리를 입력해주세요.</p>
-                    <div style="background: #f3f4f6; padding: 15px; margin: 20px 0; font-size: 24px; font-weight: bold; color: #1e3a8a;">
-                        ${code}
+        console.log(`[Email] Sending via Resend API to ${to}...`);
+        
+        // SMTP 포트 대신 HTTP(443) 포트를 쓰므로 차단될 일이 없음
+        const response = await axios.post(
+            'https://api.resend.com/emails',
+            {
+                from: 'onboarding@resend.dev', // Resend 기본 테스트 도메인 (나중에 본인 도메인 연결 가능)
+                to: [to],
+                subject: '[SNU Table] 인증번호 안내',
+                html: `
+                    <div style="padding: 20px; text-align: center; border: 1px solid #eee;">
+                        <h1>SNU Table</h1>
+                        <p>인증번호: <strong>${code}</strong></p>
                     </div>
-                </div>
-            `
-        };
+                `
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${RESEND_API_KEY}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
 
-        console.log(`[Email] Sending email to ${to}...`);
-        const info = await transporter.sendMail(mailOptions);
-        console.log(`[Email] Success! MessageID: ${info.messageId}`);
+        console.log(`[Email] Success! ID: ${response.data.id}`);
         return true;
     } catch (error: any) {
-        console.error("[Email] Failed to send email:", error);
+        console.error("[Email] Resend API Error:", error.response?.data || error.message);
         return false;
     }
 }
