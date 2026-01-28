@@ -374,6 +374,9 @@ async function sendVerificationEmail(to: string, code: string): Promise<boolean>
 const distPath = path.join(__dirname, '../../dist');
 app.use(express.static(distPath));
 
+// [참고] 전역 변수로 선언되어 있다고 가정한 상태
+// const VERIFICATIONS: Record<string, { code: string; expiresAt: number }> = {}; 
+
 app.post('/api/auth/send-code', async (req: Request, res: Response) => {
     try {
         const { email } = req.body;
@@ -383,8 +386,30 @@ app.post('/api/auth/send-code', async (req: Request, res: Response) => {
         }
 
         const cleanEmail = email.trim().toLowerCase();
-        // [테스트용] gmail도 허용하고 싶다면 아래 주석 해제 (지금은 snu.ac.kr만)
-        // const SNU_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@(snu\.ac\.kr|gmail\.com)$/;
+
+        // ---------------------------------------------------------
+        // [수정 1] 데모 계정 로직 (저장소와 속성명을 통일했습니다)
+        // ---------------------------------------------------------
+        if (cleanEmail === 'demo_student@snu.ac.kr') {
+            const demoCode = '123456'; 
+            
+            // 핵심 수정: verificationCodes.set 대신 VERIFICATIONS 객체 사용
+            // 핵심 수정: expires 대신 expiresAt 사용 (밑에 verify 함수랑 맞춤)
+            VERIFICATIONS[cleanEmail] = {
+                code: demoCode,
+                expiresAt: Date.now() + 5 * 60 * 1000 // 5분 유효
+            };
+    
+            console.log(`[Demo] 데모 계정 요청 감지. 인증번호: ${demoCode} (발송 스킵)`);
+    
+            return res.status(200).json({ 
+                success: true, 
+                message: '인증번호가 발송되었습니다. (데모 모드)',
+                demoCode: demoCode 
+            });
+        }
+        // ---------------------------------------------------------
+
         const SNU_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@snu\.ac\.kr$/;
         
         if (!SNU_EMAIL_REGEX.test(cleanEmail)) {
@@ -393,6 +418,8 @@ app.post('/api/auth/send-code', async (req: Request, res: Response) => {
         }
 
         const code = Math.floor(100000 + Math.random() * 900000).toString();
+        
+        // 일반 유저 저장 로직
         VERIFICATIONS[cleanEmail] = {
             code,
             expiresAt: Date.now() + 3 * 60 * 1000
@@ -402,6 +429,7 @@ app.post('/api/auth/send-code', async (req: Request, res: Response) => {
 
         if (sent) {
             const response: any = { success: true, message: '인증번호가 발송되었습니다.' };
+            // 개발 환경이거나 설정이 없으면 코드를 응답에 포함 (선택사항)
             if (!SMTP_CONFIG.auth.user) response.code = code;
             res.json(response);
         } else {
@@ -421,19 +449,26 @@ app.post('/api/auth/verify-code', (req: Request, res: Response) => {
             return;
         }
         const cleanEmail = email.trim().toLowerCase();
+        
+        // 여기서 VERIFICATIONS를 조회하므로, 위에서 여기에 저장을 잘 해줘야 합니다.
         const record = VERIFICATIONS[cleanEmail];
 
         if (!record) {
             res.status(400).json({ error: '인증 정보가 없습니다. 다시 요청해주세요.' });
             return;
         }
+        
+        // 속성명 expiresAt 확인
         if (Date.now() > record.expiresAt) {
             delete VERIFICATIONS[cleanEmail];
             res.status(400).json({ error: '인증 시간이 만료되었습니다.' });
             return;
         }
-        if (record.code === code || code === '123456') {
+
+        // 인증 성공 조건
+        if (record.code === code) {
             delete VERIFICATIONS[cleanEmail];
+            // 실제로는 JWT 토큰 등을 발급해야 함
             const token = `token-${cleanEmail}-${Date.now()}`;
             res.json({ success: true, token });
         } else {
@@ -443,7 +478,6 @@ app.post('/api/auth/verify-code', (req: Request, res: Response) => {
         res.status(500).json({ error: error.message });
     }
 });
-
 app.get('/api/menus/:restaurantId', async (req: Request, res: Response) => {
     try {
         const { restaurantId } = req.params;
